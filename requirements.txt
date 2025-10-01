@@ -1,0 +1,7 @@
+streamlit>=1.36.0
+plotly>=5.24.1
+transformers>=4.46.2
+torch>=2.5.1
+openai>=1.45.0
+sentencepiece>=0.2.0
+numpy>=1.26.0
