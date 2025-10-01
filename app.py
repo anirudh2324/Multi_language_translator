@@ -42,7 +42,7 @@ def translate_text(text, src_lang="en", tgt_lang="hi"):
         return translated_text
     except (ValueError, Exception) as e:
         # Fallback to OpenAI if model not available
-        st.warning(f"Using OpenAI fallback for translation: {str(e)}")
+        # st.warning(f"Using OpenAI fallback for translation: {str(e)}")
         return openai_translate_text(text, src_lang, tgt_lang)
 
 
