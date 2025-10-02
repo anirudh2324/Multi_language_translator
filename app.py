@@ -1,11 +1,14 @@
-# app.py
+# # app.py
 import streamlit as st
-from transformers import MarianMTModel, MarianTokenizer
+import os
+from dotenv import load_dotenv
+from google import genai
 from openai import OpenAI
+from transformers import MarianMTModel, MarianTokenizer
+from google.genai import types
 
-# Initialize OpenAI client
-OPENAI_API_KEY = st.secrets["api_keys"]["openai"]
-client = OpenAI(api_key=OPENAI_API_KEY)
+load_dotenv()
+
 
 # --- Translation functions ---
 @st.cache_resource
@@ -42,20 +45,24 @@ def translate_text(text, src_lang="en", tgt_lang="hi"):
         return translated_text
     except (ValueError, Exception) as e:
         # Fallback to OpenAI if model not available
-        # st.warning(f"Using OpenAI fallback for translation: {str(e)}")
+        st.warning(f"Using OpenAI fallback for translation: {str(e)}")
         return openai_translate_text(text, src_lang, tgt_lang)
 
 
 def openai_translate_text(text, src_lang="en", tgt_lang="hi"):
     """Fallback translation using OpenAI"""
-    if not OPENAI_API_KEY:
+    if not api_key:
         return "Please set OPENAI_API_KEY to use translation"
 
     prompt = f"Translate the following text from {src_lang} to {tgt_lang}: {text}"
+
+    client = OpenAI(api_key=api_key, base_url=base_url)
+    messages = [{"role": "user", "content": prompt}]
+
     try:
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
+            model = custom_model,
+            messages=messages,
             max_tokens=200,
             temperature=0.3
         )
@@ -65,8 +72,6 @@ def openai_translate_text(text, src_lang="en", tgt_lang="hi"):
 
 
 def explain_context(original_text, translated_text, src_lang="en", tgt_lang="hi"):
-    if not OPENAI_API_KEY:
-        return "Please set OpenAI API key to get context explanations"
 
     prompt = f"""
     Original text ({src_lang}): {original_text}
@@ -77,26 +82,26 @@ def explain_context(original_text, translated_text, src_lang="en", tgt_lang="hi"
     2. If the original text contains idioms, metaphors, or slang, clarify their cultural meaning.
     3. Suggest alternative phrasings if available.
     """
+    if not api_key:
+        st.error("❌ API key missing or not set. Please provide a valid API key.")
+        st.error("If you need Context Explanation: use OpenAI with an API key.")
+        return None
+
+    client = OpenAI(api_key=api_key, base_url=base_url)
+    messages = [{"role": "user", "content": prompt}]
 
     try:
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": prompt}],
+            model=custom_model,
+            messages=messages,
             temperature=0.7,
             max_tokens=300
         )
         return response.choices[0].message.content
     except Exception as e:
-        return f"Context explanation error: {str(e)}"
+        st.error(f"❌ Error: {e}")
 
 
-# --- Streamlit UI ---
-st.set_page_config(page_title="🌍 Multilingual Translator with Context", page_icon="🌐", layout="centered")
-
-st.title("🌍 Multilingual Translator with Context")
-st.write("Translate text into different languages and get cultural/linguistic explanations.")
-
-# Define supported languages
 LANGUAGES = {
     "English": "en",
     "Hindi": "hi",
@@ -108,9 +113,65 @@ LANGUAGES = {
     "Telugu": "te"
 }
 
-# User input
-text_input = st.text_area("Enter text to translate", "Break a leg!")
 
+
+st.set_page_config(page_title="🌍 Multilingual Translator with Context", page_icon="🌐", layout="centered")
+
+st.title("🌍 Multilingual Translator with Context")
+st.write("Translate text into different languages and get cultural/linguistic explanations.")
+
+
+
+LLM_MODELS = {
+    "Gemini (Free)": {
+        "model": ["gemini-2.0-flash-lite","gemini-2.0-flash","gemini-1.5-flash"],
+        "api_key_env": "GEMINI_API_KEY",
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+        "requires_key": False
+    },
+    "ChatGPT (Paid)": {
+        "model": ["gpt-4o","gpt-4.1","gpt-4.1-mini","gpt-4.1-nano","o4-mini","gpt-3.5-turbo"],
+        "api_key_env": None,
+        "base_url": "https://api.openai.com/v1/",
+        "requires_key": True
+    },
+}
+
+st.sidebar.header("⚙️ LLM Settings")
+
+llm_providers = list(LLM_MODELS.keys()) + ["Other (Custom)"]
+selected_provider = st.sidebar.selectbox("Select LLM Provider", llm_providers)
+
+if selected_provider == "Other (Custom)":
+    custom_llm_name = st.sidebar.text_input("🔤 Custom LLM Name")
+    custom_base_url = st.sidebar.text_input("🌐 Base URL")
+    model_options = ["Other"]
+    selected_model_option = "Other"
+else:
+    provider_info = LLM_MODELS[selected_provider]
+    model_options = provider_info["model"] + ["Other"]
+    selected_model_option = st.sidebar.selectbox("Select Model Version", model_options)
+
+# If model is "Other" → ask for input
+if selected_model_option == "Other":
+    custom_model = st.sidebar.text_input("🧠 Enter Custom Model Name")
+else:
+    custom_model = selected_model_option
+
+# Get API Key
+if selected_provider == "Other (Custom)" or LLM_MODELS.get(selected_provider, {}).get("requires_key", False):
+    user_api_key = st.sidebar.text_input("🔑 API Key", type="password")
+else:
+    env_key = LLM_MODELS[selected_provider]["api_key_env"]
+    user_api_key = os.getenv(env_key)
+
+# Get Base URL
+base_url = custom_base_url if selected_provider == "Other (Custom)" else LLM_MODELS[selected_provider]["base_url"]
+api_key = user_api_key
+
+
+# === Input Query ===
+text_input = st.text_area("Enter text to translate", "Break a leg!")
 col1, col2 = st.columns(2)
 with col1:
     src_lang_name = st.selectbox("Source language", list(LANGUAGES.keys()), index=0)
